@@ -10,4 +10,4 @@ Great thanks to Ilushechkin Eugeniy for his advices and patience. Thanks to IT d
 
 ## License
 Copyright (c) 2013 Irina Molodyh
-Licensed under the GPL license.
+Licensed under the MIT license.
