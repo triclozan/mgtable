@@ -55,7 +55,8 @@
 
                 //формируем список
                 listContent = '';
-                inputValue = $(this).val();
+                input = $(this);
+                inputValue = input.val();
                 if (inputValue.length > 2)
                 {
                     $.each(list, function(k, v)
@@ -68,44 +69,23 @@
                 }
 
                 //выводим список в блок под вызвавшем элементом
-                if(listContent.length)
-                    {
-                listBlock.html(listContent).css({left: $(this).offset().left, top: $(this).offset().top + $(this).height()}).slideDown('normal');
-                    } else {
-                        listBlock.slideUp('normal');
-                    }
+                if (listContent.length)
+                {
+                    listBlock.html(listContent).css({left: $(this).offset().left, top: $(this).offset().top + $(this).height()}).slideDown('normal');
+                } else {
+                    listBlock.slideUp('normal');
+                }
+                
+                //обработка клика по элементу списка
+                listBlock.find('li').click(function() {
+                    input.val($(this).text());
+//                    input.change();
+                });
             });
 
             $(b).blur(function() {
                 listBlock.slideUp('normal');
             });
-            /*
-             function jselect(a) {//формирование списка автозаполнения
-             var b = window.Super.SimpleEntity,
-             c = '',
-             d = $('#jsubjects');
-             d.attr('rel', a.attr('rel'));
-             if (a.val().length > 2)
-             for (i in b)
-             if (b[i]['value'].toLowerCase().indexOf(a.val().toLowerCase()) === 0)
-             c += '<li rel="' + b[i]['id'] + '">' + b[i]['value'] + '</li>';
-             if (!c.length)
-             d.slideUp('normal').html('');
-             else {
-             d.html(c).css({left: a.offset().left, top: a.offset().top + a.height()}).slideDown('normal');
-             d.find('li').click(function() {//клик по элементу списка автозаполнения
-             var a = $(this),
-             rel = d.attr('rel') * 1 + 1,
-             b = $('#jtable tr:eq(' + rel + ')').find('td'); //b - это столбцы одной строки таблицы
-             //console.log($('#jtable tr:eq('+rel+')'));
-             b.eq(0).find('input').val(a.attr('rel')).attr('id', b.eq(0).find('input').attr('id') + rel);
-             b.eq(1).find('input').val(a.text());
-             b.eq(1).find('input').change(); //вызов обработчика изменения дисциплины (сам он срабатывает до изменения текста автозаполнением)
-             d.slideUp('normal');
-             });
-             }
-             }
-             */
         }
     }
 
