@@ -1,6 +1,6 @@
 /* 
- * To change this template, choose Tools | Templates
- * and open the template in the editor.
+ * Mgtable jquery plugin.
+ * Copyright by Irina Molodyh, 2013.
  */
 
 
@@ -12,10 +12,30 @@
      * @param {type} options
      * @returns {unresolved}
      */
-    function getList(options)
+    function getList(name, options)
     {
-        var list = loadData(options);
-        return list;
+        listStore = $.data(document.body, 'listStore');
+        if (listStore == null) {
+            $.data(document.body, 'listStore', Array());
+            listStore = $.data(document.body, 'listStore');
+        }
+        if (listStore[name] != null) {
+            return listStore[name];
+        }
+        else {
+            if (isOnline()) {
+                //console.log('online');
+                list = loadData(options);
+                listStore[name] = list;
+                $.data(document.body, 'listStore', listStore);
+                persistData(null, 'list$' + name, list);
+            }
+            else {
+                //console.log('offline');
+                list = restoreData(null, 'list$' + name);
+            }           
+            return list;
+        }
     }
 
     /* Функция добавляет список в блок
@@ -41,7 +61,6 @@
                 $(l).append(tplRender('option', {id: v.id, value: v.value, selected: s}));
             });
         } else if (type === 'autocomplete') {
-            list = JSON.parse(list).SimpleEntity;
             //list = list.SimpleEntity;
             b = $(block).find('input:eq(0)');
 
@@ -49,10 +68,10 @@
                 //Создаем блок для вывода списка
                 if (!$('.list_block').length)
                 {
-                    $('body').append(tplRender('ul', {class: 'list_block'}));
+                    $('body').append(tplRender('ul', {'class': 'list_block'}));
                 }
                 listBlock = $('.list_block');
-
+                
                 //формируем список
                 listContent = '';
                 input = $(this);
@@ -67,11 +86,10 @@
                         }
                     });
                 }
-
                 //выводим список в блок под вызвавшем элементом
                 if (listContent.length)
                 {
-                    listBlock.html(listContent).css({left: $(this).offset().left, top: $(this).offset().top + $(this).height()}).slideDown('normal');
+                    listBlock.html(listContent).css({position: 'absolute', left: $(this).offset().left, top: $(this).offset().top + $(this).height()}).slideDown('normal');
                 } else {
                     listBlock.slideUp('normal');
                 }
@@ -84,6 +102,7 @@
             });
 
             $(b).blur(function() {
+                listBlock = $('.list_block');
                 listBlock.slideUp('normal');
             });
         }
@@ -140,14 +159,14 @@
         {
             case 'log':
                 {
-                    console.log('mgTable:');
-                    console.log(message);
+                    //console.log('mgTable:');
+                    //console.log(message);
                     break;
                 }
             default:
                 {
-                    console.log('mgTable default:');
-                    console.log(message);
+                    //console.log('mgTable default:');
+                    //console.log(message);
                     break;
                 }
         }
@@ -162,9 +181,188 @@
     function outHeader(block, options)
     {
         $(block).html(tplRender('table', {}));
-        $.each(options, function(k, v) {
-            $(block).find('#mgtable tr:eq(0)').append(tplRender('th', {value: v.name, id: k})); //-плохо с таким ИД
+        var tr = $(block).find('#mgtable tr:eq(0)');
+        options = $(block).data('options');
+        $.each(options.columns, function(k, v) {
+            tr.append(tplRender('th', {value: v.name, id: k})); //-плохо с таким ИД
         });
+        if (options.del) {
+            tr.append('<th class="delete_column">Удалить</th>');
+        }
+    }
+
+    /* Функция вывода панели управления
+     * 
+     * @param {type} block
+     * @returns {undefined}
+     */
+    function outPanel(block) {
+        $(block).find('#mgtable').parent().append('<div class="mgPanel"/>'); //-плохо с таким ИД
+        panel = $(block).find('.mgPanel');
+        
+        panel.append(tplRender('button', {'value': "Вставить", 'class': "insert"}));
+        panel.find('.insert').on('click', function() {
+            var headers = $(block).find('#mgtable th'); 
+            insertRow(block, null, headers, true);
+        });
+
+        panel.append(tplRender('button', {'value': "Обновить", 'class': "resfesh"}));
+        panel.find('.resfesh').on('click', function() {
+            $('#mgtable').empty();
+            data = loadData($(block).data('options').serverApi.load);
+            /*if (typeof(data[1]) != 'object')//придумать какую-нибудь проверку, ато мало ли...
+            {
+                data = JSON.parse('[' + JSON.stringify(data) + ']');
+            }*/
+            if (data.length == 0) {
+                    data = Array();
+            }
+
+            outHeader($(block));
+            outData($(block), data, $(block).data('options').columns, $(block).data('options').lists);
+            
+            persistData($(block).attr('id'), 'data', data);
+            persistData($(block).attr('id'), 'state', data);
+            outPanel($(block));
+            str = {rows: []};
+            str.rows = data;
+            table = $(block).find('#mgtable');
+            table.data('table', str);
+        });        
+        
+        panel.append(tplRender('button', {'value': "Сохранить", 'class': "save"}));
+        panel.find('.save').on('click', function() {
+            res = $('#mgtable').mgtable('compare');
+            res = JSON.stringify(res);
+            var handlers = {};
+            handlers.success = function(msg) {
+                $('#mgtable').empty();
+                data = loadData($(block).data('options').serverApi.load);
+                /*if (typeof(data[1]) != 'object')//придумать какую-нибудь проверку, ато мало ли...
+                {
+                    data = JSON.parse('[' + JSON.stringify(data) + ']');
+                }*/
+                if (data.length == 0) {
+                    data = null;
+                }
+                outHeader($(block));
+                outData($(block), data, $(block).data('options').columns, $(block).data('options').lists);
+                outPanel($(block));
+                persistData($(block).attr('id'), 'data', data);
+                persistData($(block).attr('id'), 'state', data);
+                str = {rows: []};
+                str.rows = data;
+                table = $(block).find('#mgtable');
+                table.data('table', str);
+            }
+            loadData($(block).data('options').serverApi.save, {'rows': res}, handlers);
+        });
+        
+        panel.append(tplRender('button', {'value': "Отложить правку", 'class': "save_local"}));
+        panel.find('.save_local').on('click', function() {
+            data = getSnapshot(block);
+            persistData($(block).attr('id'), 'state', data);
+        });
+
+    }
+
+    /* Функция вставки строки
+     * 
+     * @param {type} block
+     * @returns {undefined}
+     */
+    function insertRow(block, data, headers, isNew) {
+        options = $(block).data('options');
+        columns = options.columns;
+        lists = options.lists;
+        var table = $(block).find('#mgtable');
+        var val = data;        
+        $(table).append(tplRender('tr', {id: (isNew ? '' : 'tr_' + val.id)}));
+        var tr = $(table).find('tr:last');
+        $.each(headers, function(k, v) {//цикл по столбцам
+            if ($(v).attr("class") == "delete_column") {
+                return;
+            }
+            col_id = $(v).attr("id");
+            $(tr).append(tplRender('td', {}));
+            b = $(tr).find('td:last');
+            tdVal = (isNew ? columns[col_id].def : val[col_id]);
+            switch (columns[col_id].tag) {
+                case 'input':
+                    {
+                        $(b).append(tplRender('input', {value: tdVal}));
+                        if (columns[col_id].autocomplete_list)
+                        {
+                            outList('autocomplete', b, getList(columns[col_id].autocomplete_list, lists[columns[col_id].autocomplete_list].serverApi), tdVal);
+                        }
+                        break;
+                    }
+                case 'select':
+                    {
+                        if (lists[columns[col_id].select_list])
+                        {
+                            outList('select', b, getList(columns[col_id].select_list, lists[columns[col_id].select_list].serverApi), tdVal);
+                        } else {
+                            outMessage('нет информации о списке выбора!');
+                        }
+                        break;
+                    }
+                case 'label':
+                    {
+                        $(b).append(tplRender('label', {value: tdVal}));
+                        break;
+                    }
+                default:
+                    {
+                        $(b).append(tplRender('label', {value: tdVal}));
+                        break;
+                    }
+            }
+        });
+        if (options.del) {
+            $(tr).append('<td><input type="checkbox" class="del_select"/></td>');
+        }
+    }    
+
+    /* Функция сохранения данных в локальном хранилище
+     * 
+     * @param {type} block
+     * @param {type} key
+     * @param {type} data
+     * @returns {undefined}
+     */
+    function persistData(block, key, data)
+    {
+        if (block == null) {
+            localStorage.setItem(key, JSON.stringify(data));
+        }
+        else {
+            localStorage.setItem(block + '$' + key, JSON.stringify(data));            
+        }
+    }
+    
+    /* Функция извлечения данных из локального хранилища
+     * 
+     * @param {type} block
+     * @param {type} key
+     * @returns {undefined}
+     */
+    function restoreData(block, key)
+    {
+        if (block == null) {
+            res = localStorage.getItem(key);
+            if (res === 'undefined' || typeof res === 'undefined') {
+                return null;
+            }
+            return JSON.parse(res);
+        }
+        else {
+            res = localStorage.getItem(block + '$' + key);
+            if (res === 'undefined' || typeof res === 'undefined') {
+                return null;
+            }
+            return JSON.parse(res);
+        }
     }
 
     /* Функция вывода данных
@@ -178,47 +376,8 @@
     {
         var headers = $(block).find('#mgtable th'); //-плохо с таким ИД
         var table = $(block).find('#mgtable'); //-плохо с таким ИД
-        $.each(data, function(k, val) {//цикл по строкам
-            $(table).append(tplRender('tr', {id: val.id}));
-            var tr = $(table).find('tr:last');
-            $.each(headers, function(k, v) {//цикл по столбцам
-                col_id = $(v).attr("id");
-                $(tr).append(tplRender('td', {}));
-                b = $(tr).find('td:last');
-                switch (columns[col_id].tag) {
-                    case 'input':
-                        {
-                            $(b).append(tplRender('input', {value: val[col_id]}));
-                            if (columns[col_id].autocomplete_list)
-                            {
-                                outList('autocomplete', b, getList(lists[columns[col_id].autocomplete_list].serverApi), val[col_id]);
-                            }
-                            break;
-                        }
-                    case 'select':
-                        {
-                            if (lists[columns[col_id].select_list])
-                            {
-//outMessage(getList($(v).attr("id"), options[$(v).attr("id")].select_list));
-                                outList('select', b, getList(lists[columns[col_id].select_list].serverApi), val[col_id]);
-                            } else {
-                                outMessage('нет информации о списке выбора!');
-                            }
-                            break;
-                        }
-                    case 'label':
-                        {
-                            $(b).append(tplRender('label', {value: val[col_id]}));
-                            break;
-                        }
-                    default:
-                        {
-                            $(b).append(tplRender('label', {value: val[col_id]}));
-                            break;
-                        }
-                }
-            });
-            bindData(tr, val, 'tr_data'); //тут будем временно записывать данные на страницу
+        $.each(data, function(k, val) {
+            insertRow(block, val, headers, false);
         });
     }
 
@@ -226,32 +385,36 @@
      * @param {type} data  data/function/url
      * @returns {unresolved} data
      */
-    function loadData(data)
+    function loadData(data, params, handlers)
     {
         if (typeof(data.url) == 'string')
         {
             if (isUrl(data.url))//является ли строка url
             {//если является загружаем данные
 //тогда ещё чуть-чуть и со списками все будет замечательно!
+                data.data = jQuery.extend(data.data, params);
                 $.ajax({
                     async: false,
                     type: data.type,
                     url: data.url,
                     data: data.data,
-                    success: function(msg) {
-                        d = JSON.parse(msg);
-                    }
+                    success: ((handlers != null && handlers.success != null) ? handlers.success : 
+                        function(msg) {
+                            //console.log(msg);
+                            d = JSON.parse(msg);
+                        })
                 });
             }
-        } else if (typeof(data.function) == 'function')
+        } /*else if (typeof(data.function) == 'function')
         {
             var d = data.function();
             outMessage(d);
-        }
+        }*/
         return d;
     }
 
     var templates = {input: "<input type = 'text' value = '{value}'></input>",
+        button: "<input type = 'button' class = '{class}' value = '{value}'/>",
         label: "<label>{value}</label>",
         select: "<select name = '{name}'></select>",
         option: "<option value = '{id}' {selected}>{value}</option>",
@@ -267,16 +430,55 @@
         serverApi: {
             load: {
                 url: null,
-                function: null,
+                'function': null,
                 object: null,
                 type: 'POST',
                 data: {
-                    render: 'partial',
-                    act: 7,
-                    type: $('select#type').val(),
                 }}},
         columns: {row1: {name: 'row1', tag: 'lable', def: 'value1'}},
     };
+    
+    function getSnapshot(block) {
+        allOptions = $(block).data('options');
+        var keys = {};
+        table = $(block).find('#mgtable');
+        //console.log(table);
+        table.find('tr:eq(0)').each(function() {//вытаскиваем ключи
+            jQuery(this).find('th').each(function(index, v) {
+                id = $(this).attr("id");
+                columns = allOptions.columns;
+                $.each(columns, function(k, v) {
+                    if (k == id) {
+                        keys[index] = id;
+                    }
+                });
+            });
+        });
+        var data = [];
+        //console.log(keys);
+        /*
+        startIndex = $(this).data('table').rows.length;
+        data = $(this).data('table');*/
+        table.find('tr:gt(0)').each(function() {
+                //console.log('tr');
+                currentTr = $(this);
+                new_row = {};
+                $.each(keys, function(key, val) {
+                    new_row[val] = currentTr.find('td:eq(' + key + ') > *').val();
+                });
+                if ($(this).attr('id') != null) {
+                    new_row['id'] = $(this).attr('id').replace(/[a-z]*_/, '');
+                }
+                data.push(new_row);
+        });
+        //console.log(data);    
+        return data;        
+    }    
+    
+    function isOnline() {
+        return navigator.onLine;
+    }
+    
     var methods = {
         /*
          *  функция init()
@@ -286,118 +488,95 @@
             //outMessage('log', $(this).attr('id'));
 
             myOptions = jQuery.extend({}, defaults, options); //собираем все опции вместе (тут будет проверяться локальное хранилище)
-
+            $(this).data('options', myOptions);
             //Подключение стилей
-            $("head").append($("<link rel='stylesheet' href='" + myOptions.style + "' type='text/css' media='screen' />"));
+            if (document.createStyleSheet){
+                document.createStyleSheet(myOptions.style);
+            }
+            else {
+                $("head").append($("<link rel='stylesheet' href='" + myOptions.style + "' type='text/css' media='screen' />"));
+            }
+            
             //Вывод таблицы
             //1 - вывод заголовка таблицы
+           
             outHeader($(this), myOptions.columns);
             //2 - вывод строк таблицы
             //2.1 - получение данных
-            data = loadData(myOptions.serverApi.load);
-            if (typeof(data[1]) != 'object')//придумать какую-нибудь проверку, ато мало ли...
+            //console.log(navigator);
+            if (isOnline()) {
+                //console.log('online');
+                state = restoreData($(this).attr('id'), 'state');
+                localStorage.clear();
+                data = loadData(myOptions.serverApi.load);
+                if (data.length == 0) {
+                    data = null;
+                }
+                if (state == null || state.length == 0) {
+                    state = data;
+                }
+                //console.log(state);
+                persistData($(this).attr('id'), 'data', data);
+                persistData($(this).attr('id'), 'state', state);
+            }
+            else {
+                //console.log('offline');
+                data = restoreData($(this).attr('id'), 'data');
+                state = restoreData($(this).attr('id'), 'state');
+            }
+            
+            /*if (typeof(data[1]) != 'object')//придумать какую-нибудь проверку, ато мало ли...
             {
                 data = JSON.parse('[' + JSON.stringify(data) + ']');
+            }*/
+            if (state == null || state.length == 0) {
+                state = Array();
             }
 //outMessage(data, 'log');
 //2.2 - вывод данных в таблицу
-            outData($(this), data, myOptions.columns, myOptions.lists);
-            outMessage($(this).data());
-            /*var str = {rows: []};
-             var keys = {k: []};
+            outData($(this), state, myOptions.columns, myOptions.lists);
+            
+            outPanel($(this));
+                   
+            var str = {rows: []};
+            var numbers = Array();
+            //console.log('Data:');
+            //console.log(data);
+            str.rows = (data == null ? Array() : data);
+            table = $(this).find('#mgtable');
+            table.data('table', str);
+            $.each(options.columns, function(k, v) {
+                numbers[k] = v;
+            });
+            table.data('save_col', options.columns);
+                        
+            /*jQuery(this).each(function() {
+                jQuery(this).find('tr:eq(0)').each(function() {//вытаскиваем ключи
+                    for (i = 0; i < $(options.numbers).length; i++) {
+                        key = $(this).find('th:eq(' + options.numbers[i] + ')').attr("id");
+                        keys.k[options.numbers[i]] = key;
+                    }
+                });
+                jQuery(this).find('tr:gt(0)').each(function() {//сохраняем таблицу
+                    row = {
+                        "id": jQuery(this).attr('id').replace(/[a-z]*_/, '')
+                    }
+                    for (i = 0; i < $(options.numbers).length; i++) {
+                        row[keys.k[i]] = jQuery(this).find('td:eq(' + options.numbers[i] + ') > *').val();
+                    }   
+                    str.rows.push(row);
+                })
+             //str.rows = data;
+             table = $(this).find('#mgtable');
+                if (!table.data('table')) {
+                    table.data('table', str);
+                    table.data('save_col', options.numbers);
+                }
+             });*/
              
-             jQuery(this).each(function() {
-             jQuery(this).find('tr:eq(0)').each(function() {//вытаскиваем ключи
-             for (i = 0; i < $(options.numbers).length; i++) {
-             key = $(this).find('th:eq(' + options.numbers[i] + ')').attr("id");
-             keys.k[options.numbers[i]] = key;
-             }
-             });
-             jQuery(this).find('tr:gt(0)').each(function() {//сохраняем таблицу
-             row = {
-             "id": jQuery(this).attr('name').replace(/[a-z]*_/, '')
-             }
-             for (i = 0; i < $(options.numbers).length; i++) {
-             row[keys.k[i]] = jQuery(this).find('td:eq(' + options.numbers[i] + ') > *').val();
-             }
-             str.rows.push(row);
-             })
-             //console.log( str );
-             if (!$(this).data('table')) {
-             $(this).data('table', str);
-             $(this).data('save_col', options.numbers);
-             }
-             //console.log(this);
-             console.log($(this).data());
-             //console.log(' .data() test');
-             });
-             return this;*/
+             return this;
         },
-        /*
-         * функция выводит объект JSON в виде таблицы в заданный блок
-         * 1. options.rows - массив строк таблицы { rows: [ {}, {}, ...] }
-         * 2. ortions.headers[] - заголовок таблицы
-         */
-        outtable: function(options) {
-//установк опций
-            /*var options = jQuery.extend({}, defaults, options);
-             var rows;
-             if (typeof(options.rows) == 'function')
-             rows = options.rows();
-             console.log(rows);
-             
-             $(this).html('<table align="center" border="1" frame="border" rules="all" width="99%" id="jtable"><tr></tr></table>');
-             
-             //если тблица доступна для изменений
-             if (options.check_table) {
-             
-             //вывод заголовка таблицы
-             for (i = 0; i < (options.headers).length; i++) {
-             if (options.headers[i] != "id") {
-             $(this).find('#jtable tr:eq(0)').append('<th>' + options.headers[i] + '</th>');
-             }
-             }
-             if (options.del) {
-             $(this).find('#jtable tr:eq(0)').append('<th>Отметить для удаления</th>');
-             }
-             
-             //вывод строк таблицы
-             for (i = 0; i < (rows).length; i++) {
-             //заполнение id строки
-             $(this).find("#jtable").append('<tr id="tr_' + rows[i].id + '"></tr>');
-             n = i + 1;
-             $.each(rows[i], function(k, val) {
-             if (k != "id") {
-             $("#jtable tr:eq(" + n + ")").append('<td><input value = "' + val + '"/></td>')
-             }
-             });
-             if (options.del) {
-             $("#jtable tr:eq(" + n + ")").append('<td><input type="checkbox" class="del_select"/></td>')
-             }
-             }
-             
-             } else {//не доступна для изменений
-             
-             //вывод заголовка таблицы
-             for (i = 0; i < (options.headers).length; i++) {
-             if (options.headers[i] != "id") {
-             $(this).find('#jtable tr:eq(0)').append('<th>' + options.headers[i] + '</th>');
-             }
-             }
-             
-             //вывод строк таблицы
-             for (i = 0; i < (rows).length; i++) {
-             //заполнение id строки
-             $(this).find("#jtable").append('<tr id="tr_' + rows[i].id + '"></tr>');
-             n = i + 1;
-             $.each(rows[i], function(k, val) {
-             if (k != "id") {
-             $("#jtable tr:eq(" + n + ")").append('<td><p>' + val + '</p></td>')
-             }
-             });
-             }
-             }*/
-        },
+
         /*
          *  Функция get() возвращает результат сравнения JSON объкта, прикрепленного к таблице и состояния таблицы на момент вызова функци
          *  1 Параметр options
@@ -405,66 +584,73 @@
          *  3 options.del - номер столбца который указывает на необходимость удалить строку (необязательный)
          */
         compare: function(options) {
-
             var options = jQuery.extend({}, options);
-            if (!options.numbers) {
-                options.numbers = $(this).data('save_col');
-            }
-            var keys = {k: []};
+            var me = $(this);
+            allOptions = me.parent().data('options');
+            var keys = {};
+            var delete_column;
             jQuery(this).find('tr:eq(0)').each(function() {//вытаскиваем ключи
-                for (i = 0; i < $(options.numbers).length; i++) {
-                    key = $(this).find('th:eq(' + options.numbers[i] + ')').attr("id");
-                    keys.k[options.numbers[i]] = key;
-                }
+                jQuery(this).find('th').each(function(index, v) {
+                    if ($(v).attr('class') == 'delete_column') {
+                        delete_column = index;
+                    }
+                    id = $(this).attr("id");
+                    columns = allOptions.columns;
+                    $.each(columns, function(k, v) {
+                        if (k == id) {
+                            keys[index] = id;
+                        }
+                    });                    
+                });
             });
             var str = {};
+            //console.log($(this).data('table'));
             startIndex = $(this).data('table').rows.length;
-            //console.log('keys.k = ' + keys.k);
             data = $(this).data('table');
-            console.log(JSON.stringify(data));
             $(this).find('tr:gt(' + startIndex + ')').each(function() {
-                if (!options.del || !$(this).find('td:eq(' + options.del + ') input').prop("checked")) {
+                if (!allOptions.del || !$(this).find('td:eq(' + delete_column + ') input').prop("checked")) {
                     new_row = {};
                     if (!str.insert)
                         str.insert = {"row": []};
-                    //console.log(str.insert);
-                    for (i = 0; i < $(options.numbers).length; i++) {
-                        new_row[keys.k[i]] = jQuery(this).find('td:eq(' + options.numbers[i] + ') > *').val();
-                        //console.log(keys.k[i] + '  ' + row[keys.k[i]]);
-                    }
+                    
+                    currentTr = $(this);
+                    $.each(keys, function(key, val) {
+                        new_row[val] = currentTr.find('td:eq(' + key + ') > *').val();
+                    });
                     str.insert.row.push(new_row);
                 }
             });
             $(this).find('tr:gt(0):lt(' + startIndex + ')').each(function(k) {
-                if (!options.del || !$(this).find('td:eq(' + options.del + ') input').prop("checked")) {
-
+                if (!allOptions.del || !$(this).find('td:eq(' + delete_column + ') input').prop("checked")) {
+                    currentTr = $(this);
                     res = data.rows[k];
                     eq = true;
                     //проверка на наличае изменений
-                    for (i = 0; i < $(options.numbers).length; i++) {
-                        eq = eq && (res[keys.k[i]] == $(this).find('td:eq(' + options.numbers[i] + ') > *').val())
-                    }
+                    $.each(keys, function(key, val) {
+                        eq = eq && (res[val] == currentTr.find('td:eq(' + key + ') > *').val())
+                    });
                     if (!eq) {
 
                         if (!str.update)
                             str.update = {"row": []}; //если массива update нет, создаем его
                         row = {
-                            "id": $(this).attr('name').replace(/[a-z]*_/, '')
+                            "id": $(this).attr('id').replace(/[a-z]*_/, '')
                         };
-                        for (i = 0; i < $(options.numbers).length; i++) {
-                            row[keys.k[i]] = jQuery(this).find('td:eq(' + options.numbers[i] + ') > *').val();
-                        }
+                        $.each(keys, function(key, val) {
+                            row[val] = currentTr.find('td:eq(' + key + ') > *').val();
+                        });
                         str.update.row.push(row);
                     }
 
                 } else {
-                    if (!str.delete)
-                        str.delete = {"id": []};
-                    str.delete.id.push($(this).attr('name').replace(/[a-z]*_/, ''));
+                    
+                    if (!str['delete'])
+                        str['delete'] = {"id": []};
+                    str['delete'].id.push($(this).attr('id').replace(/[a-z]*_/, ''));
                 }
                 return (k != startIndex);
             });
-            console.log(str.update);
+            //console.log(str);
             return str;
         }
     }
